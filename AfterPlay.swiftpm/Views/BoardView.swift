@@ -12,25 +12,49 @@ struct BoardView: View {
     
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // Grid de 18px (Sua Shape original otimizada)
+            // Grid de Fundo
             GridView(columns: viewModel.columns, rows: viewModel.rows)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                // É importante que o ZStack tenha o tamanho exato do grid para os cálculos baterem
+                .frame(width: AFDimension.Grid.Main.size.width,
+                       height: AFDimension.Grid.Main.size.width)
             
-            // Brinquedos "Invocados" no centro
+            // Camada de Brinquedos
             ForEach(viewModel.placedToys) { placed in
-                Image(placed.toy.topDownName)
+                let isDragging = viewModel.draggingToyId == placed.id
+                
+                Image(placed.toy.topViewAsset) // Use topViewAsset (conforme Toys.swift)
                     .resizable()
+                    .scaledToFit() // Garante que a proporção da imagem se mantenha
                     .frame(
-                        width: CGFloat(placed.toy.gridWidth) * viewModel.cellSize,
-                        height: CGFloat(placed.toy.gridHeight) * viewModel.cellSize
+                        width: placed.toy.getWidthPx(),
+                        height: placed.toy.getHeightPx()
                     )
+                    // Aplica o offset do arrasto apenas se for este o brinquedo sendo movido
+                    .offset(isDragging ? viewModel.dragOffset : .zero)
                     .position(placed.position)
-                    .transition(.asymmetric(insertion: .scale, removal: .opacity))
+                    // Escala sutil ao pegar (feedback visual)
+                    .scaleEffect(isDragging ? 1.05 : 1.0)
+                    .shadow(radius: isDragging ? 10 : 0)
+                    .zIndex(isDragging ? 100 : 1) // Traz para frente ao arrastar
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                viewModel.updateDrag(id: placed.id, translation: value.translation)
+                            }
+                            .onEnded { value in
+                                viewModel.endDrag(id: placed.id, finalTranslation: value.translation)
+                            }
+                    )
+//                    // Se houver toque simples para rotacionar, adicione aqui um TapGesture
+//                    .onTapGesture {
+//                        // Implemente a rotação no ViewModel se necessário
+//                        // viewModel.rotateToy(id: placed.id)
+//                    }
             }
         }
-        .frame(width: CGFloat(viewModel.columns) * viewModel.cellSize,
-               height: CGFloat(viewModel.rows) * viewModel.cellSize)
-        .background(Color.brown.opacity(0.1))
-        .cornerRadius(12)
+        .frame(width: AFDimension.Grid.Main.size.width,
+               height: AFDimension.Grid.Main.size.width)
+        .contentShape(Rectangle())
     }
 }

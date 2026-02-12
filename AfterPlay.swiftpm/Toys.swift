@@ -45,7 +45,6 @@ class PlacedToy: Identifiable {
 
 class Toy: Identifiable {
     let id: UUID = UUID()
-    let name: String
     var heightMap: [[Int]]
     var iconAsset: String
     var topViewAsset: String
@@ -57,8 +56,7 @@ class Toy: Identifiable {
     var receivedPoints: Bool
     var inPlaceInteractions: [InteractionEnum]
     
-    init(name: String, heightMap: [[Int]], iconAsset: String, topViewAsset: String, points: Int) {
-        self.name = name
+    init(heightMap: [[Int]], iconAsset: String, topViewAsset: String, points: Int) {
         self.heightMap = heightMap
         self.iconAsset = iconAsset
         self.topViewAsset = topViewAsset
