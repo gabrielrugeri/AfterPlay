@@ -1,60 +1,55 @@
-//
-//  BoardView.swift
-//  AfterPlay
-//
-//  Created by Gabriel Rugeri on 09/02/26.
-//
-
 import SwiftUI
 
 struct BoardView: View {
-    @State var viewModel: BoardViewModel
+    @State var viewModel: BoardViewModel // @State para iOS 17+ (se usar @Observable)
     
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // Grid de Fundo
-            GridView(columns: viewModel.columns, rows: viewModel.rows)
-                .stroke(Color.white.opacity(0.05), lineWidth: 1)
-                // É importante que o ZStack tenha o tamanho exato do grid para os cálculos baterem
-                .frame(width: AFDimension.Grid.Main.size.width,
-                       height: AFDimension.Grid.Main.size.width)
             
-            // Camada de Brinquedos
+            // 1. Grid Background
+            GridView(columns: viewModel.columns, rows: viewModel.rows)
+                .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                .frame(width: CGFloat(viewModel.columns) * viewModel.cellSize,
+                       height: CGFloat(viewModel.rows) * viewModel.cellSize)
+            
+            // 2. Placed Toys
             ForEach(viewModel.placedToys) { placed in
                 let isDragging = viewModel.draggingToyId == placed.id
                 
-                Image(placed.toy.topViewAsset) // Use topViewAsset (conforme Toys.swift)
+                Image(placed.toy.topViewAsset) // Confirme se o nome da var é topViewAsset no seu Toy.swift
                     .resizable()
-                    .scaledToFit() // Garante que a proporção da imagem se mantenha
+                    .scaledToFit()
                     .frame(
-                        width: placed.toy.getWidthPx(),
-                        height: placed.toy.getHeightPx()
+                        width: CGFloat(placed.toy.getWidthCells()) * viewModel.cellSize,
+                        height: CGFloat(placed.toy.getHeightCells()) * viewModel.cellSize
                     )
-                    // Aplica o offset do arrasto apenas se for este o brinquedo sendo movido
-                    .offset(isDragging ? viewModel.dragOffset : .zero)
+                    // Posição + Offset do arrasto
                     .position(placed.position)
-                    // Escala sutil ao pegar (feedback visual)
-                    .scaleEffect(isDragging ? 1.05 : 1.0)
-                    .shadow(radius: isDragging ? 10 : 0)
-                    .zIndex(isDragging ? 100 : 1) // Traz para frente ao arrastar
+                    .offset(isDragging ? viewModel.dragOffset : .zero)
+                    // Efeitos Visuais
+                    .scaleEffect(isDragging ? 1.1 : 1.0)
+                    .shadow(color: .black.opacity(0.3), radius: isDragging ? 10 : 0, x: 0, y: 5)
+                    .zIndex(isDragging ? 100 : 1)
+                    // Gesto
                     .gesture(
                         DragGesture()
                             .onChanged { value in
-                                viewModel.updateDrag(id: placed.id, translation: value.translation)
+                                viewModel.onDragChanged(id: placed.id, translation: value.translation)
                             }
                             .onEnded { value in
-                                viewModel.endDrag(id: placed.id, finalTranslation: value.translation)
+                                viewModel.onDragEnded(id: placed.id, translation: value.translation)
                             }
                     )
-//                    // Se houver toque simples para rotacionar, adicione aqui um TapGesture
-//                    .onTapGesture {
-//                        // Implemente a rotação no ViewModel se necessário
-//                        // viewModel.rotateToy(id: placed.id)
-//                    }
+                    // Rotação (Toque Duplo ou Simples)
+                    .onTapGesture(count: 2) {
+                        // Implementaremos rotação no próximo passo
+                        print("Double tap para rotacionar!")
+                    }
             }
         }
-        .frame(width: AFDimension.Grid.Main.size.width,
-               height: AFDimension.Grid.Main.size.width)
-        .contentShape(Rectangle())
+        .frame(width: CGFloat(viewModel.columns) * viewModel.cellSize,
+               height: CGFloat(viewModel.rows) * viewModel.cellSize)
+        .background(Color.white.opacity(0.5)) // Fundo do tabuleiro
+        .cornerRadius(16)
     }
 }

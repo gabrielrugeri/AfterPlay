@@ -1,166 +1,128 @@
-//
-//  BoardViewModel.swift
-//  AfterPlay
-//
-//  Created by Gabriel Rugeri on 10/02/26.
-//
-
 import SwiftUI
+//
+//// Estrutura auxiliar para coordenadas inteiras
+//struct GridPoint: Equatable {
+//    let col: Int
+//    let row: Int
+//}
 
 @Observable class BoardViewModel {
+    // MARK: - Propriedades
     var inventory: [Toy] = []
     var placedToys: [PlacedToy] = []
     
-    // A matriz "viva" do tabuleiro. Iniciamos com a baseHM (zeros ou mapa base)
+    // Matriz "viva" do tabuleiro.
+    // DICA: Inicialize com AFHeightMap.MainGrid.baseHM
+    // Se quiser testar a regra de terreno, mude manualmente alguns 0 para -1 nesta matriz base.
     var mainGridMatrix: [[Int]] = AFHeightMap.MainGrid.baseHM
     
-    let columns: Int = AFDimension.Grid.Main.columns
-    let rows: Int = AFDimension.Grid.Main.rows // Note: no seu código original estava 'row' no singular
-    let cellSize: CGFloat = AFDimension.Grid.cellDimension
-    let centerInGrid: CGPoint = AFDimension.Grid.Main.centerPoint
-
-    // MARK: - Inventory Logic
+    // Estados de Interação
+    var draggingToyId: UUID?
+    var dragOffset: CGSize = .zero
+    
+    // Constantes (Atalhos)
+    let columns = AFDimension.Grid.Main.columns
+    let rows = AFDimension.Grid.Main.rows
+    let cellSize = AFDimension.Grid.cellDimension
+    
+    // MARK: - Gestão de Inventário
     
     func selectToyFromInventory(_ toy: Toy) {
-        // Tenta colocar no centro, mas busca posição válida se estiver ocupado (opcional)
-        // Por enquanto, mantemos sua lógica de centro, mas convertendo para GridPoint
+        // Tenta colocar no centro
         let centerCol = (columns - toy.getWidthCells()) / 2
         let centerRow = (rows - toy.getHeightCells()) / 2
         let startGridPoint = GridPoint(col: centerCol, row: centerRow)
         
-        let startPos = AFDimension.Grid.centerPosition(
-            for: startGridPoint,
-            toyWidthCells: toy.getWidthCells(),
-            toyHeightCells: toy.getHeightCells()
-        )
-        
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+        // Verifica se o centro é válido. Se não for, teríamos que buscar outro lugar,
+        // mas por enquanto vamos forçar a tentativa ou rejeitar.
+        if canPlace(toy: toy, at: startGridPoint) {
+            depositToy(toy: toy, at: startGridPoint)
+            
+            let startPos = getScreenPosition(for: startGridPoint, toy: toy)
             let newPlaced = PlacedToy(toy: toy, position: startPos)
-            placedToys.append(newPlaced)
-            inventory.removeAll { $0.id == toy.id }
-        }
-    }
-    
-    // MARK: - Core Logic: Validação e Depósito
-        
-    /// Verifica se o brinquedo pode ser colocado (Regra: Espaço livre E mesmo tipo de terreno)
-    func canPlace(toy: Toy, at topLeft: GridPoint) -> Bool {
-        let h = toy.heightMap.count
-        let w = toy.heightMap[0].count
-        
-        let maxHeight = mainGridMatrix.count
-        let maxWidth = mainGridMatrix[0].count
-        
-        // Variável para armazenar o valor do terreno encontrado na primeira célula válida
-        var targetTerrainValue: Int? = nil
-        
-        for r in 0..<h {
-            for c in 0..<w {
-                // Só nos importamos onde o brinquedo tem matéria física
-                if toy.heightMap[r][c] != 0 {
-                    
-                    // 1. Verificação de Limites
-                    let gridRow = topLeft.row + r
-                    let gridCol = topLeft.col + c
-                    
-                    if gridRow < 0 || gridRow >= maxHeight || gridCol < 0 || gridCol >= maxWidth {
-                        return false
-                    }
-                    
-                    let currentBoardValue = mainGridMatrix[gridRow][gridCol]
-                    
-                    // 2. Verificação de Ocupação
-                    // Se > 0, já tem brinquedo lá.
-                    if currentBoardValue > 0 {
-                        return false
-                    }
-                    
-                    // 3. Verificação de Uniformidade (Nova Regra)
-                    if let target = targetTerrainValue {
-                        // Se já definimos um terreno alvo, o atual deve ser igual
-                        if currentBoardValue != target {
-                            return false // Tentou colocar em terrenos mistos (ex: 0 e -1)
-                        }
-                    } else {
-                        // Primeira célula válida encontrada: define isso como o terreno obrigatório
-                        targetTerrainValue = currentBoardValue
-                    }
-                }
+            
+            withAnimation(.spring) {
+                placedToys.append(newPlaced)
+                inventory.removeAll { $0.id == toy.id }
             }
+        } else {
+            print("Não foi possível colocar o brinquedo no centro (Ocupado ou Terreno inválido).")
+            // Opcional: Feedback visual de erro
         }
-        
-        return true
     }
     
-    /// Efetiva a colocação: Soma a matriz do brinquedo à matriz do tabuleiro
-    func depositToy(toy: Toy, at topLeft: GridPoint) {
-        let h = toy.heightMap.count
-        let w = toy.heightMap[0].count
+    // MARK: - Summon Logic (Invocação)
         
-        for r in 0..<h {
-            for c in 0..<w {
-                // Soma apenas onde o brinquedo tem massa (embora somar 0 não mude nada, o if economiza acesso)
-                if toy.heightMap[r][c] != 0 {
-                    mainGridMatrix[topLeft.row + r][topLeft.col + c] += toy.heightMap[r][c]
-                }
-            }
-        }
+    /// Chamado quando o usuário clica num botão do inventário
+    func summonToy(toy: Toy) {
+        // 1. Calcular o ponto central do Grid (em coordenadas de Grid)
+        let centerCol = (columns - toy.getWidthCells()) / 2
+        let centerRow = (rows - toy.getHeightCells()) / 2
+        let centerGridPoint = GridPoint(col: centerCol, row: centerRow)
         
-        print("Brinquedo depositado! Matriz atualizada.")
-    }
-    
-    /// Remove o brinquedo da matriz (essencial para quando você for MOVER uma peça)
-    func liftToy(toy: Toy, from topLeft: GridPoint) {
-        let h = toy.heightMap.count
-        let w = toy.heightMap[0].count
-        
-        for r in 0..<h {
-            for c in 0..<w {
-                if toy.heightMap[r][c] != 0 {
-                    mainGridMatrix[topLeft.row + r][topLeft.col + c] -= toy.heightMap[r][c]
-                }
+        // 2. Verificar se o centro está livre
+        // Se estiver ocupado, poderíamos procurar o lugar livre mais próximo,
+        // mas por enquanto vamos apenas validar.
+        if canPlace(toy: toy, at: centerGridPoint) {
+            
+            // 3. Criar o PlacedToy
+            let screenPos = getScreenPosition(for: centerGridPoint, toy: toy)
+            let newPlacedToy = PlacedToy(toy: toy, position: screenPos)
+            
+            // 4. Atualizar o estado (com animação)
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                // Adiciona ao tabuleiro
+                placedToys.append(newPlacedToy)
+                // Remove do inventário
+                inventory.removeAll { $0.id == toy.id }
+                
+                // Opcional: Já deposita na matriz lógica para ocupar o espaço
+                depositToy(toy: toy, at: centerGridPoint)
             }
         }
     }
     
-    // MARK: - Drag & Drop Logic Core
+    // MARK: - Lógica de Drag & Drop (Arrastar e Soltar)
     
-    /// Chamado enquanto o usuário arrasta
-    func updateDrag(id: UUID, translation: CGSize) {
+    func onDragChanged(id: UUID, translation: CGSize) {
         draggingToyId = id
         dragOffset = translation
-        // Aqui você poderia calcular em tempo real se a posição é válida para mudar a cor da borda (feedback)
     }
     
-    /// Chamado quando o usuário solta o brinquedo
-    func endDrag(id: UUID, finalTranslation: CGSize) {
+    func onDragEnded(id: UUID, translation: CGSize) {
         guard let index = placedToys.firstIndex(where: { $0.id == id }) else { return }
-        let placedToy = placedToys[index]
+        let placed = placedToys[index]
         
-        // 1. Calcula onde o brinquedo cairia na tela
-        let predictedPosition = CGPoint(
-            x: placedToy.position.x + finalTranslation.width,
-            y: placedToy.position.y + finalTranslation.height
-        )
+        // 1. Calcular posição visual final prevista
+        let predictedPos = CGPoint(x: placed.position.x + translation.width,
+                                   y: placed.position.y + translation.height)
         
-        // 2. Converte para coordenadas do Grid (Snap)
-        let targetGridPoint = AFDimension.Grid.gridPoint(
-            from: predictedPosition,
-            toyWidthCells: placedToy.toy.getWidthCells(),
-            toyHeightCells: placedToy.toy.getHeightCells()
-        )
+        // 2. Converter para GridPoint (Alvo)
+        let targetGridPoint = getGridPoint(from: predictedPos, toy: placed.toy)
         
-        // 3. Valida as Regras do Jogo
-        if isValidPosition(toy: placedToy.toy, at: targetGridPoint, ignoring: placedToy.id) {
-            // Sucesso: Atualiza para a posição "snapada"
-            let snappedPosition = AFDimension.Grid.centerPosition(
-                for: targetGridPoint,
-                toyWidthCells: placedToy.toy.getWidthCells(),
-                toyHeightCells: placedToy.toy.getHeightCells()
-            )
+        // 3. Descobrir onde ele estava antes (Origem)
+        let oldGridPoint = getGridPoint(from: placed.position, toy: placed.toy)
+        
+        // 4. LEVANTAR (Remove valores da matriz antiga para não colidir consigo mesmo)
+        liftToy(toy: placed.toy, from: oldGridPoint)
+        
+        // 5. VALIDAR novo local
+        if canPlace(toy: placed.toy, at: targetGridPoint) {
+            // SUCESSO: Deposita no novo local
+            depositToy(toy: placed.toy, at: targetGridPoint)
             
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                placedToys[index].position = snappedPosition
+            // Atualiza posição visual (Snap)
+            let snappedPos = getScreenPosition(for: targetGridPoint, toy: placed.toy)
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                placedToys[index].position = snappedPos
+            }
+        } else {
+            // FALHA: Devolve para o local antigo
+            depositToy(toy: placed.toy, at: oldGridPoint)
+            
+            // Reverte visualmente (Snap back)
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                // Ao zerar o offset (via draggingToyId = nil), o SwiftUI reverte a view para .position original
             }
         }
         
@@ -169,74 +131,85 @@ import SwiftUI
         dragOffset = .zero
     }
     
-    // MARK: - Validation Engine (Collision)
+    // MARK: - Core Logic: Validação e Matriz
     
-    /// Verifica se o brinquedo cabe no grid e não colide com outros
-    func isValidPosition(toy: Toy, at point: GridPoint, ignoring ignoreId: UUID) -> Bool {
-        // 1. Check Bounds (Limites do Tabuleiro)
-        if point.col < 0 || point.row < 0 ||
-           point.col + toy.getWidthCells() > columns ||
-           point.row + toy.getHeightCells() > rows {
-            return false
-        }
+    /// Verifica: 1. Limites | 2. Ocupação (>0) | 3. Uniformidade do Terreno
+    private func canPlace(toy: Toy, at topLeft: GridPoint) -> Bool {
+        let h = toy.getHeightCells()
+        let w = toy.getWidthCells()
+        var targetTerrain: Int? = nil // O valor do terreno que devemos respeitar
         
-        // 2. Check Collision (Sobreposição de HeightMaps)
-        // Itera sobre todos os outros brinquedos já posicionados
-        for otherPlaced in placedToys where otherPlaced.id != ignoreId {
-            if checkCollision(toyA: toy, posA: point, toyB: otherPlaced.toy, posB: gridPoint(for: otherPlaced)) {
-                return false
-            }
-        }
-        
-        return true
-    }
-    
-    // Helper para converter a posição CGPoint atual de um brinquedo para GridPoint
-    private func gridPoint(for placedToy: PlacedToy) -> GridPoint {
-        return AFDimension.Grid.gridPoint(
-            from: placedToy.position,
-            toyWidthCells: placedToy.toy.getWidthCells(),
-            toyHeightCells: placedToy.toy.getHeightCells()
-        )
-    }
-    
-    /// Algoritmo de Colisão "Pixel-Perfect" usando HeightMaps
-    private func checkCollision(toyA: Toy, posA: GridPoint, toyB: Toy, posB: GridPoint) -> Bool {
-        // Otimização: Primeiro checa bounding box simples (Rect Overlap)
-        let rectA = CGRect(x: posA.col, y: posA.row, width: toyA.getWidthCells(), height: toyA.getHeightCells())
-        let rectB = CGRect(x: posB.col, y: posB.row, width: toyB.getWidthCells(), height: toyB.getHeightCells())
-        
-        guard rectA.intersects(rectB) else { return false }
-        
-        // Se os retângulos colidem, verifica célula por célula nos HeightMaps
-        // Apenas onde os mapas > 0 existe matéria física
-        
-        // Itera sobre as células do Toy A
-        let heightMapA = toyA.heightMap
-        let heightMapB = toyB.heightMap
-        
-        for rowA in 0..<heightMapA.count {
-            for colA in 0..<heightMapA[0].count {
-                if heightMapA[rowA][colA] > 0 { // Se Toy A tem matéria aqui
-                    // Calcula a coordenada absoluta no Grid
-                    let absCol = posA.col + colA
-                    let absRow = posA.row + rowA
+        for r in 0..<h {
+            for c in 0..<w {
+                if toy.heightMap[r][c] != 0 { // Se é parte física do brinquedo
+                    let gridRow = topLeft.row + r
+                    let gridCol = topLeft.col + c
                     
-                    // Converte para coordenadas relativas do Toy B
-                    let relColB = absCol - posB.col
-                    let relRowB = absRow - posB.row
+                    // 1. Limites
+                    if gridRow < 0 || gridRow >= rows || gridCol < 0 || gridCol >= columns { return false }
                     
-                    // Verifica se cai dentro do Toy B e se Toy B também tem matéria
-                    if relColB >= 0 && relColB < toyB.getWidthCells() &&
-                       relRowB >= 0 && relRowB < toyB.getHeightCells() {
-                        if heightMapB[relRowB][relColB] > 0 {
-                            return true // Colisão Detectada!
-                        }
+                    let boardVal = mainGridMatrix[gridRow][gridCol]
+                    
+                    // 2. Ocupação (Se > 0, já tem algo)
+                    if boardVal > 0 { return false }
+                    
+                    // 3. Uniformidade (Deve ser igual ao primeiro terreno encontrado)
+                    if let target = targetTerrain {
+                        if boardVal != target { return false }
+                    } else {
+                        targetTerrain = boardVal
                     }
                 }
             }
         }
+        return true
+    }
+    
+    /// Soma a matriz do brinquedo à matriz do tabuleiro
+    private func depositToy(toy: Toy, at topLeft: GridPoint) {
+        modifyMatrix(toy: toy, topLeft: topLeft, signal: 1)
+    }
+    
+    /// Subtrai a matriz do brinquedo da matriz do tabuleiro
+    private func liftToy(toy: Toy, from topLeft: GridPoint) {
+        modifyMatrix(toy: toy, topLeft: topLeft, signal: -1)
+    }
+    
+    private func modifyMatrix(toy: Toy, topLeft: GridPoint, signal: Int) {
+        let h = toy.getHeightCells()
+        let w = toy.getWidthCells()
         
-        return false
+        for r in 0..<h {
+            for c in 0..<w {
+                let val = toy.heightMap[r][c]
+                if val != 0 {
+                    let gridRow = topLeft.row + r
+                    let gridCol = topLeft.col + c
+                    // Segurança extra de limites
+                    if gridRow >= 0 && gridRow < rows && gridCol >= 0 && gridCol < columns {
+                        mainGridMatrix[gridRow][gridCol] += (val * signal)
+                    }
+                }
+            }
+        }
+        // print("Matriz atualizada. Operação: \(signal > 0 ? "Depósito" : "Levantamento")")
+    }
+    
+    // MARK: - Helpers de Conversão
+    
+    /// Posição Visual (Centro) -> Grid Index (TopLeft)
+    func getGridPoint(from center: CGPoint, toy: Toy) -> GridPoint {
+        let wPx = CGFloat(toy.getWidthCells()) * cellSize
+        let hPx = CGFloat(toy.getHeightCells()) * cellSize
+        let col = Int(round((center.x - wPx/2) / cellSize))
+        let row = Int(round((center.y - hPx/2) / cellSize))
+        return GridPoint(col: col, row: row)
+    }
+    
+    /// Grid Index (TopLeft) -> Posição Visual (Centro)
+    func getScreenPosition(for point: GridPoint, toy: Toy) -> CGPoint {
+        let x = (CGFloat(point.col) * cellSize) + (CGFloat(toy.getWidthCells()) * cellSize / 2)
+        let y = (CGFloat(point.row) * cellSize) + (CGFloat(toy.getHeightCells()) * cellSize / 2)
+        return CGPoint(x: x, y: y)
     }
 }
