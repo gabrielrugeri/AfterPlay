@@ -12,44 +12,52 @@ struct BoardView: View {
                 .frame(width: CGFloat(viewModel.columns) * viewModel.cellSize,
                        height: CGFloat(viewModel.rows) * viewModel.cellSize)
             
-            // 2. Placed Toys
             ForEach(viewModel.placedToys) { placed in
                 let isDragging = viewModel.draggingToyId == placed.id
                 
-                Image(placed.toy.topViewAsset) // Confirme se o nome da var é topViewAsset no seu Toy.swift
+                Image(placed.toy.topViewAsset)
                     .resizable()
                     .scaledToFit()
                     .frame(
                         width: CGFloat(placed.toy.getWidthCells()) * viewModel.cellSize,
                         height: CGFloat(placed.toy.getHeightCells()) * viewModel.cellSize
                     )
-                    // Posição + Offset do arrasto
+                    // --- LÓGICA DE SOMBRA E COR ---
+                    .opacity(isDragging ? 0.9 : 1.0)
+                    // Aplica o filtro de cor APENAS se estiver arrastando
+                    .colorMultiply(
+                        isDragging ? (viewModel.isPlacementValid ? .green : .red) : .white
+                    )
+                    // Adiciona uma borda colorida também para reforçar (opcional)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(
+                                isDragging ? (viewModel.isPlacementValid ? Color.green : Color.red) : Color.clear,
+                                lineWidth: 2
+                            )
+                    )
+                    // -----------------------------
                     .position(placed.position)
                     .offset(isDragging ? viewModel.dragOffset : .zero)
-                    // Efeitos Visuais
-                    .scaleEffect(isDragging ? 1.1 : 1.0)
-                    .shadow(color: .black.opacity(0.3), radius: isDragging ? 10 : 0, x: 0, y: 5)
                     .zIndex(isDragging ? 100 : 1)
-                    // Gesto
                     .gesture(
                         DragGesture()
                             .onChanged { value in
+                                // Importante: Chamar startDrag apenas no início
+                                if viewModel.draggingToyId == nil {
+                                    viewModel.startDrag(id: placed.id)
+                                }
                                 viewModel.onDragChanged(id: placed.id, translation: value.translation)
                             }
                             .onEnded { value in
                                 viewModel.onDragEnded(id: placed.id, translation: value.translation)
                             }
                     )
-                    // Rotação (Toque Duplo ou Simples)
-                    .onTapGesture(count: 2) {
-                        // Implementaremos rotação no próximo passo
-                        print("Double tap para rotacionar!")
-                    }
             }
         }
         .frame(width: CGFloat(viewModel.columns) * viewModel.cellSize,
                height: CGFloat(viewModel.rows) * viewModel.cellSize)
-        .background(Color.white.opacity(0.5)) // Fundo do tabuleiro
+//        .background(Color.white.opacity(0.5))  Fundo do tabuleiro
         .cornerRadius(16)
     }
 }

@@ -25,6 +25,36 @@ import SwiftUI
     let rows = AFDimension.Grid.Main.rows
     let cellSize = AFDimension.Grid.cellDimension
     
+    // Variável para controlar o feedback visual (Verde/Vermelho)
+    var isPlacementValid: Bool = true
+    
+    let score = 0
+    
+    // MARK: - Inicialização
+    init() {
+        loadInitialInventory()
+    }
+    
+    func loadInitialInventory() {
+        // Adicione aqui as instâncias dos brinquedos que você quer no nível
+        inventory = [
+            Basketball(),
+            Bear(),
+            Book(),
+            Car(version: 1),
+            Car(version: 2),
+            Car(version: 3),
+            Duck(),
+            Horse(),
+            Lego(), // Tower
+            Rubix(),
+            Russian(version: 1),
+            Russian(version: 2),
+            Russian(version: 3),
+            Wand()
+        ]
+    }
+    
     // MARK: - Gestão de Inventário
     
     func selectToyFromInventory(_ toy: Toy) {
@@ -82,53 +112,83 @@ import SwiftUI
         }
     }
     
-    // MARK: - Lógica de Drag & Drop (Arrastar e Soltar)
-    
-    func onDragChanged(id: UUID, translation: CGSize) {
+    // MARK: - Drag Logic Atualizada
+
+    /// Inicia o arrasto: Remove o peso do brinquedo da matriz para evitar auto-colisão
+    func startDrag(id: UUID) {
+        guard let index = placedToys.firstIndex(where: { $0.id == id }) else { return }
+        let placed = placedToys[index]
+        
         draggingToyId = id
-        dragOffset = translation
+        
+        // Converte a posição visual atual para GridPoint
+        let currentGridPoint = getGridPoint(from: placed.position, toy: placed.toy)
+        
+        // Remove da matriz lógica temporariamente enquanto arrasta
+        liftToy(toy: placed.toy, from: currentGridPoint)
+        
+        // Define validade inicial como true (pois ele estava num lugar válido)
+        isPlacementValid = true
     }
     
+    /// Atualiza durante o arrasto: Verifica validade em tempo real
+    func onDragChanged(id: UUID, translation: CGSize) {
+        guard let index = placedToys.firstIndex(where: { $0.id == id }) else { return }
+        let placed = placedToys[index]
+        
+        dragOffset = translation
+        
+        // 1. Predizer a posição futura no Grid
+        let predictedPos = CGPoint(x: placed.position.x + translation.width,
+                                   y: placed.position.y + translation.height)
+        let targetGridPoint = getGridPoint(from: predictedPos, toy: placed.toy)
+        
+        // 2. Verificar se essa posição é válida (Sem alterar a matriz ainda)
+        // Como já removemos o brinquedo da matriz em startDrag, canPlace funciona perfeitamente
+        withAnimation(.linear(duration: 0.1)) {
+            isPlacementValid = canPlace(toy: placed.toy, at: targetGridPoint)
+        }
+    }
+    
+    /// Finaliza o arrasto: Consolida a posição
     func onDragEnded(id: UUID, translation: CGSize) {
         guard let index = placedToys.firstIndex(where: { $0.id == id }) else { return }
         let placed = placedToys[index]
         
-        // 1. Calcular posição visual final prevista
         let predictedPos = CGPoint(x: placed.position.x + translation.width,
                                    y: placed.position.y + translation.height)
-        
-        // 2. Converter para GridPoint (Alvo)
         let targetGridPoint = getGridPoint(from: predictedPos, toy: placed.toy)
         
-        // 3. Descobrir onde ele estava antes (Origem)
-        let oldGridPoint = getGridPoint(from: placed.position, toy: placed.toy)
+        // A matriz já está "limpa" do brinquedo atual (foi feito no startDrag).
+        // Agora decidimos onde ele pousa.
         
-        // 4. LEVANTAR (Remove valores da matriz antiga para não colidir consigo mesmo)
-        liftToy(toy: placed.toy, from: oldGridPoint)
-        
-        // 5. VALIDAR novo local
         if canPlace(toy: placed.toy, at: targetGridPoint) {
             // SUCESSO: Deposita no novo local
             depositToy(toy: placed.toy, at: targetGridPoint)
             
-            // Atualiza posição visual (Snap)
+            // Snap visual
             let snappedPos = getScreenPosition(for: targetGridPoint, toy: placed.toy)
             withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
                 placedToys[index].position = snappedPos
             }
         } else {
-            // FALHA: Devolve para o local antigo
-            depositToy(toy: placed.toy, at: oldGridPoint)
+            // FALHA: Precisa voltar para onde estava antes do arrasto começar?
+            // O problema é que precisamos saber onde ele estava.
+            // Para simplificar, calculamos o ponto original subtraindo a translação final
+            // (Ou você pode salvar `originalPosition` no startDrag se preferir precisão absoluta)
             
-            // Reverte visualmente (Snap back)
+            let originalGridPoint = getGridPoint(from: placed.position, toy: placed.toy)
+            depositToy(toy: placed.toy, at: originalGridPoint)
+            
             withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
-                // Ao zerar o offset (via draggingToyId = nil), o SwiftUI reverte a view para .position original
+                // O SwiftUI reverte visualmente ao limparmos o dragOffset
             }
         }
         
         // Limpeza
         draggingToyId = nil
         dragOffset = .zero
+        isPlacementValid = true // Reseta para a próxima interação
     }
     
     // MARK: - Core Logic: Validação e Matriz
